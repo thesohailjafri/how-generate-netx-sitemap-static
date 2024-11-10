@@ -1,36 +1,162 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## Approach 1: Using next-sitemap package
 
-## Getting Started
+### Create a next-sitemap.config.js file in the root of your project and add the following code:
 
-First, run the development server:
+```javascript
+/** @type {import('next-sitemap').IConfig} */
+module.exports = {
+  siteUrl: process.env.SITE_URL || 'https://example.com',
+  generateRobotsTxt: true, // (optional)
+  // ...other options
+  changefreq: 'weekly',
+  priority: 0.7,
+  transform: async (config, path) => {
+    let priority = config.priority // default priority => 0.5
+    let changefreq = config.changefreq // default changefreq => 'weekly'
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+    // Set higher priority for home and team pages
+    if (path === '/') {
+      // home page
+      priority = 1.0 // Highest priority for the homepage
+      changefreq = 'monthly'
+    } else if (path === '/blogs') {
+      priority = 0.9 // Higher priority for the index blogs page
+      changefreq = 'daily'
+    } else if (path.includes('/blogs/')) {
+      priority = 0.6 // Higher priority for the slug blogs page
+      changefreq = 'daily'
+    }
+
+    return {
+      loc: path, // => this will be exported as http(s)://<config.siteUrl>/<path>
+      changefreq: changefreq,
+      priority: priority, // Dynamic priority based on the page
+      lastmod: config.autoLastmod ? new Date().toISOString() : undefined,
+      alternateRefs: config.alternateRefs ?? [],
+    }
+  },
+}
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Add the following script to your package.json file:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```json
+{
+  "scripts": {
+    "build": "next build",
+    "postbuild": "next-sitemap"
+  }
+}
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Approach 2: Using custom script
 
-## Learn More
+### Create a scripts/generate-sitemap.mjs file in the root of your project and add the following code:
 
-To learn more about Next.js, take a look at the following resources:
+```javascript
+import { writeFileSync } from 'fs'
+import { globby } from 'globby'
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+const siteUrl = 'https://example.com'
+const generateUrl = (path) => siteUrl + path
+const defaultConfig = {
+  changefreq: 'weekly',
+  priority: '0.7',
+  lastmod: new Date().toISOString(),
+}
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+const homeConfig = {
+  loc: '/',
+  changefreq: 'monthly',
+  priority: '1.0',
+  lastmod: defaultConfig.lastmod,
+}
 
-## Deploy on Vercel
+const nextApproach = 'app' // app or pages
+const serverPath = `.next/server/${nextApproach}`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+async function generateSitemap() {
+  // Grub Pages from build
+  const buildPages = await globby([
+    // grap only /*.html files and nested folders html files
+    // *** Include ***
+    `${serverPath}/*.html`,
+    `${serverPath}/**/*.html`,
+    // *** Exclude ***
+    `!${serverPath}/index.html`,
+    `!${serverPath}/404.html`,
+    `!${serverPath}/_not-found.html`,
+    `!${serverPath}/500.html`,
+  ])
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+  const sitemapStr = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+			<url>
+					<loc>${generateUrl(homeConfig.loc)}</loc>
+					<lastmod>${homeConfig.lastmod}</lastmod>
+					<changefreq>${homeConfig.changefreq}</changefreq>
+					<priority>${homeConfig.priority}</priority>
+			</url>
+			${buildPages
+        .map((page) => {
+          const path = page.replace(serverPath, '').replace('.html', '')
+          const loc = generateUrl(path)
+          const lastmod = new Date().toISOString()
+          let changefreq = defaultConfig.changefreq
+          let priority = defaultConfig.priority
+          if (path === '/') {
+            // home page
+            priority = '1.0' // Highest priority for the homepage
+            changefreq = 'monthly'
+          } else if (path === '/blogs') {
+            priority = '0.9' // Higher priority for the index blogs page
+            changefreq = 'daily'
+          } else if (path.includes('/blogs/')) {
+            priority = '0.6' // Higher priority for the slug blogs page
+            changefreq = 'daily'
+          }
+          return `<url>
+								<loc>${loc}</loc>
+								<lastmod>${lastmod}</lastmod>
+								<changefreq>${changefreq}</changefreq>
+								<priority>${priority}</priority>
+						</url>
+					`
+        })
+        .join('')}
+	</urlset>
+	`
+
+  writeFileSync(`public/sitemap.xml`, sitemapStr)
+}
+
+generateSitemap()
+```
+
+### Add the following script to your package.json file:
+
+```json
+{
+  "scripts": {
+    "build": "next build",
+    "postbuild": "node ./scripts/generate-sitemap.mjs"
+  }
+}
+```
+
+### Run the following command to build your project and generate the sitemap:
+
+```bash
+npm run build
+```
+
+### The sitemap.xml file will be generated in the public folder of your project.
+
+If you find this useful, please don't forget to star the [repository](https://github.com/thesohailjafri/how-generate-netx-sitemap-static) and share it with others. Thank you! 🚀
+
+### Get In Touch
+
+- [YouTube](https://www.youtube.com/@thesohailjafri)
+- [Twitter](https://twitter.com/thesohailjafri)
+- [LinkedIn](https://www.linkedin.com/in/thesohailjafri/)
+- [Instagram](https://www.instagram.com/thesohailjafri/)
+- [GitHub](https://github.com/thesohailjafri)
